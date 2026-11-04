@@ -1,4 +1,360 @@
-const API_BASE = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000/api';
+// Resilient MediOracle API Client
+// Automatically tries the live Django backend API; if offline or deployed on Vercel without a live backend,
+// seamlessly falls back to interactive built-in Demo Mode with localStorage persistence.
+
+const API_BASE = import.meta.env.VITE_API_BASE_URL || '/api';
+
+// --- MOCK DATABASE (Used when live Django API is unreachable) ---
+const INITIAL_USERS = {
+  nurse_aoife: {
+    id: 2,
+    username: 'nurse_aoife',
+    full_name: 'Aoife Murphy, RGN',
+    role: 'PROFESSIONAL',
+    organization: 'Independent Specialist Healthcare'
+  },
+  facility_manager: {
+    id: 1,
+    username: 'facility_manager',
+    full_name: 'Dr. Liam O’Connor',
+    role: 'FACILITY_MANAGER',
+    organization: "St. Vincent's University Hospital"
+  },
+  agency_admin: {
+    id: 3,
+    username: 'agency_admin',
+    full_name: 'Sarah Brennan',
+    role: 'AGENCY_ADMIN',
+    organization: 'MediOracle Agency Operations HQ'
+  }
+};
+
+const INITIAL_FACILITIES = [
+  {
+    id: 1,
+    name: "St. Vincent's University Hospital",
+    facility_type: "Hospital",
+    address: "Elm Park, Merrion Rd, Dublin 4",
+    city: "Dublin",
+    contact_email: "workforce@stvincents.ie",
+    latitude: 53.3168,
+    longitude: -6.2136,
+    departments: []
+  },
+  {
+    id: 2,
+    name: "Mater Misericordiae University Hospital",
+    facility_type: "Hospital",
+    address: "Eccles St, Dublin 7",
+    city: "Dublin",
+    contact_email: "clinical.staffing@mater.ie",
+    latitude: 53.3592,
+    longitude: -6.2652,
+    departments: []
+  },
+  {
+    id: 3,
+    name: "HSE Clontarf Community Nursing Unit",
+    facility_type: "HSE Site",
+    address: "Clontarf, Dublin 3",
+    city: "Dublin",
+    contact_email: "cnu.staffing@hse.ie",
+    latitude: 53.3642,
+    longitude: -6.1950,
+    departments: []
+  }
+];
+
+const INITIAL_DEPARTMENTS = [
+  {
+    id: 1,
+    facility: 1,
+    facility_name: "St. Vincent's University Hospital",
+    name: "Intensive Care Unit (ICU)",
+    ward_code: "ICU-Level2",
+    floor: "Level 2 West",
+    required_staffing: 14,
+    confirmed_staffing: 11,
+    risk_level: "RED",
+    monthly_budget: 75000.0,
+    monthly_spent: 54200.0,
+    fill_rate: 78.6
+  },
+  {
+    id: 2,
+    facility: 1,
+    facility_name: "St. Vincent's University Hospital",
+    name: "Emergency Department (ED)",
+    ward_code: "ED-Ground",
+    floor: "Ground Floor A",
+    required_staffing: 18,
+    confirmed_staffing: 16,
+    risk_level: "YELLOW",
+    monthly_budget: 95000.0,
+    monthly_spent: 81000.0,
+    fill_rate: 88.9
+  },
+  {
+    id: 3,
+    facility: 2,
+    facility_name: "Mater Misericordiae University Hospital",
+    name: "Cardiac & Coronary Care",
+    ward_code: "CCU-03",
+    floor: "Level 3",
+    required_staffing: 8,
+    confirmed_staffing: 8,
+    risk_level: "GREEN",
+    monthly_budget: 42000.0,
+    monthly_spent: 31200.0,
+    fill_rate: 100.0
+  }
+];
+
+const INITIAL_PROFESSIONALS = [
+  {
+    id: 1,
+    full_name: "Aoife Murphy",
+    role_type: "Registered General Nurse (RGN)",
+    specialty: "Critical Care & ICU",
+    nmbi_pin: "948201",
+    nmbi_status: "ACTIVE",
+    garda_vetting_status: "VERIFIED",
+    hourly_rate: 45.0,
+    rating: 4.95,
+    reliability_score: 99,
+    shifts_completed: 82,
+    latitude: 53.328,
+    longitude: -6.23,
+    city: "Dublin",
+    instant_pay_eligible: true,
+    phone: "+353 87 234 5678"
+  },
+  {
+    id: 2,
+    full_name: "Sean O'Connor",
+    role_type: "Registered General Nurse (RGN)",
+    specialty: "Emergency Medicine & Resus",
+    nmbi_pin: "820194",
+    nmbi_status: "ACTIVE",
+    garda_vetting_status: "VERIFIED",
+    hourly_rate: 44.0,
+    rating: 4.85,
+    reliability_score: 96,
+    shifts_completed: 58,
+    latitude: 53.345,
+    longitude: -6.255,
+    city: "Dublin",
+    instant_pay_eligible: true,
+    phone: "+353 86 987 6543"
+  },
+  {
+    id: 3,
+    full_name: "Ciara Kelly",
+    role_type: "Health Care Assistant (HCA)",
+    specialty: "Elderly & Rehabilitation Care",
+    nmbi_pin: "HCA-7712",
+    nmbi_status: "ACTIVE",
+    garda_vetting_status: "VERIFIED",
+    hourly_rate: 26.5,
+    rating: 5.0,
+    reliability_score: 100,
+    shifts_completed: 114,
+    latitude: 53.36,
+    longitude: -6.21,
+    city: "Dublin",
+    instant_pay_eligible: true,
+    phone: "+353 85 432 1098"
+  },
+  {
+    id: 4,
+    full_name: "David Ryan",
+    role_type: "Clinical Specialist Midwife",
+    specialty: "Labor, Delivery & Postnatal",
+    nmbi_pin: "739102",
+    nmbi_status: "ACTIVE",
+    garda_vetting_status: "VERIFIED",
+    hourly_rate: 48.0,
+    rating: 4.75,
+    reliability_score: 93,
+    shifts_completed: 41,
+    latitude: 53.31,
+    longitude: -6.28,
+    city: "Dublin",
+    instant_pay_eligible: false,
+    phone: "+353 89 112 3344"
+  }
+];
+
+const INITIAL_SHIFTS = [
+  {
+    id: 1,
+    facility: 1,
+    facility_name: "St. Vincent's University Hospital",
+    facility_city: "Dublin",
+    department: 1,
+    department_name: "Intensive Care Unit (ICU)",
+    title: "ICU Night Shift - Critical Care Staff Nurse",
+    role_required: "Registered General Nurse (RGN)",
+    specialty_required: "Critical Care & ICU",
+    shift_date: new Date().toISOString().split('T')[0],
+    start_time: "19:30",
+    end_time: "07:30",
+    duration_hours: 11.5,
+    hourly_rate: 47.5,
+    incentive_bonus: 60.0,
+    acuity: "Critical / Level 3 Ventilated Care",
+    required_credentials: "NMBI Active, Garda Vetting, ACLS Certified",
+    status: "POSTED",
+    assigned_professional: null,
+    assigned_professional_name: null
+  },
+  {
+    id: 2,
+    facility: 1,
+    facility_name: "St. Vincent's University Hospital",
+    facility_city: "Dublin",
+    department: 2,
+    department_name: "Emergency Department (ED)",
+    title: "Emergency Dept Rapid Assessment Day Shift",
+    role_required: "Registered General Nurse (RGN)",
+    specialty_required: "Emergency Medicine & Resus",
+    shift_date: new Date(Date.now() + 86400000).toISOString().split('T')[0],
+    start_time: "08:00",
+    end_time: "20:00",
+    duration_hours: 11.5,
+    hourly_rate: 46.0,
+    incentive_bonus: 40.0,
+    acuity: "High Acuity / Triage",
+    required_credentials: "NMBI Active, Garda Vetting, BLS",
+    status: "POSTED",
+    assigned_professional: null,
+    assigned_professional_name: null
+  },
+  {
+    id: 3,
+    facility: 2,
+    facility_name: "Mater Misericordiae University Hospital",
+    facility_city: "Dublin",
+    department: 3,
+    department_name: "Cardiac & Coronary Care",
+    title: "Coronary Care Step-Down Day Shift",
+    role_required: "Registered General Nurse (RGN)",
+    specialty_required: "Critical Care & ICU",
+    shift_date: new Date().toISOString().split('T')[0],
+    start_time: "07:30",
+    end_time: "19:30",
+    duration_hours: 11.5,
+    hourly_rate: 45.0,
+    incentive_bonus: 35.0,
+    acuity: "Step-Down Monitoring",
+    required_credentials: "NMBI Active, Garda Vetting",
+    status: "CONFIRMED",
+    assigned_professional: 1,
+    assigned_professional_name: "Aoife Murphy"
+  },
+  {
+    id: 4,
+    facility: 1,
+    facility_name: "St. Vincent's University Hospital",
+    facility_city: "Dublin",
+    department: 1,
+    department_name: "Intensive Care Unit (ICU)",
+    title: "Yesterday ICU Day Shift (Completed)",
+    role_required: "Registered General Nurse (RGN)",
+    specialty_required: "Critical Care & ICU",
+    shift_date: new Date(Date.now() - 86400000).toISOString().split('T')[0],
+    start_time: "07:30",
+    end_time: "19:30",
+    duration_hours: 11.5,
+    hourly_rate: 45.0,
+    incentive_bonus: 50.0,
+    acuity: "High Acuity",
+    required_credentials: "NMBI Active, Garda Vetting",
+    status: "COMPLETED",
+    assigned_professional: 1,
+    assigned_professional_name: "Aoife Murphy"
+  }
+];
+
+const INITIAL_TIMESHEETS = [
+  {
+    id: 1,
+    shift: 4,
+    shift_title: "Yesterday ICU Day Shift (Completed)",
+    facility_name: "St. Vincent's University Hospital",
+    department_name: "Intensive Care Unit (ICU)",
+    professional: 1,
+    professional_name: "Aoife Murphy",
+    shift_date: new Date(Date.now() - 86400000).toISOString().split('T')[0],
+    clock_in_time: "07:26",
+    clock_out_time: "19:34",
+    break_duration_minutes: 45,
+    regular_hours: 11.5,
+    overtime_hours: 0.5,
+    hourly_rate: 45.0,
+    incentive_amount: 50.0,
+    total_pay: 590.0,
+    gps_verified: true,
+    status: "APPROVED",
+    manager_signature: "Dr. Liam O’Connor (Clinical Director)",
+    manager_notes: "Exemplary clinical handling during surge intake."
+  },
+  {
+    id: 2,
+    shift: 3,
+    shift_title: "Coronary Care Step-Down Day Shift",
+    facility_name: "Mater Misericordiae University Hospital",
+    department_name: "Cardiac & Coronary Care",
+    professional: 1,
+    professional_name: "Aoife Murphy",
+    shift_date: new Date().toISOString().split('T')[0],
+    clock_in_time: "07:30",
+    clock_out_time: "--:--",
+    break_duration_minutes: 30,
+    regular_hours: 11.5,
+    overtime_hours: 0.0,
+    hourly_rate: 45.0,
+    incentive_amount: 35.0,
+    total_pay: 552.5,
+    gps_verified: true,
+    status: "SUBMITTED",
+    manager_signature: "Pending Ward Leader Sign-Off",
+    manager_notes: "Shift in progress"
+  }
+];
+
+// Helper to access persistent mock storage
+const getStorage = (key, fallback) => {
+  try {
+    const val = localStorage.getItem(`medioracle_${key}`);
+    return val ? JSON.parse(val) : fallback;
+  } catch (e) {
+    return fallback;
+  }
+};
+
+const setStorage = (key, val) => {
+  try {
+    localStorage.setItem(`medioracle_${key}`, JSON.stringify(val));
+  } catch (e) {
+    // ignore
+  }
+};
+
+// Safe fetch with timeout
+async function safeFetch(url, options = {}, timeoutMs = 2000) {
+  const controller = new AbortController();
+  const id = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const res = await fetch(url, { ...options, credentials: 'omit', signal: controller.signal });
+    clearTimeout(id);
+    if (!res.ok) throw new Error(`HTTP error ${res.status}`);
+    return await res.json();
+  } catch (err) {
+    clearTimeout(id);
+    throw err;
+  }
+}
 
 export const api = {
   login: async (credentials) => {
